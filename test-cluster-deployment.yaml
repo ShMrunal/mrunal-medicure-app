@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: medicure-test-deployment
+  namespace: test
+  labels:
+    app: medicure-test-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: medicure-test-app
+  template:
+    metadata:
+      labels:
+        app: medicure-test-app
+    spec:
+      containers:
+      - name: medicure-test-app
+        image: praveensirvi/medicure:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8082
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: medicure-test-service
+  namespace: test
+spec:
+  selector:
+    app: medicure-test-app
+  type: NodePort
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8082
+    protocol: TCP
+    nodePort: 30038
