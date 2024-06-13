@@ -6,19 +6,11 @@ pipeline {
         choice(name: 'action', choices: 'create\ndelete', description: 'Choose create/Destroy')
         
     }
-    tools { 
-        maven 'maven-3.8.6' 
-    }
-    environment{
-
-        ACCESS_KEY = credentials('AWS_ACCESS_KEY_ID')
-        SECRET_KEY = credentials('AWS_SECRET_KEY_ID')
-    }
 
     stages {
         stage('Checkout git') {
             steps {
-              git 'https://github.com/praveensirvi1212/medicure-project.git'
+              git 'https://github.com/ShMrunal/mrunal-medicure-app.git'
             }
         }
         
@@ -28,49 +20,61 @@ pipeline {
             }
         }
         
-        stage ('Docker Build and push') {
+        stage("Build Docker Image") {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-cred', passwordVariable: 'password', usernameVariable: 'username')]) {
-                    
-                    sh 'docker build -t praveensirvi/medicure:v1 .'
-                    sh "docker login -u ${username} -p ${password} "
-                    sh 'docker push praveensirvi/medicure:v1'
-                    
-                    
+                echo "Building the image"
+                catchError(buildResult: 'UNSTABLE') {
+                    sh "docker build -t ${env.dockerHubUser}/medicure-app ."
+                }
+            }
+        }
+        
+        stage("Push To Docker Hub") {
+            steps {
+                echo "pushing to docker hub"
+                withCredentials([usernamePassword(credentialsId:"dockerHub",passwordVariable:"dockerHubPass",usernameVariable:"dockerHubUser")]){
+                sh "docker tag medicure-app ${env.dockerHubUser}/medicure-app:latest"
+                sh "docker login -u ${env.dockerHubUser} -p ${env.dockerHubPass}"
+                sh "docker push ${env.dockerHubUser}/medicure-app:latest"
                 }
             }
         }
         stage('Create EKS Cluster : Terraform'){
-            when { expression {  params.action == 'create' } }
+        
+            //when { expression {  params.action == 'create' } }
             steps{
                 script{
 
                     dir('eks_module') {
-                      sh """
+                       withCredentials([usernamePassword(credentialsId:"awsCredentials",passwordVariable:"SECRET_KEY",usernameVariable:"ACCESS_KEY")]){
+                           sh """
                           
                           terraform init 
-                          terraform plan -var 'access_key=$ACCESS_KEY' -var 'secret_key=$SECRET_KEY'  --var-file=./config/terraform.tfvars
-                          terraform apply -var 'access_key=$ACCESS_KEY' -var 'secret_key=$SECRET_KEY'  --var-file=./config/terraform.tfvars --auto-approve
-                      """
-                  }
+                          terraform plan -var 'access_key=${env.ACCESS_KEY}' -var 'secret_key=${env.SECRET_KEY}'  --var-file=./config/terraform.tfvars
+                          terraform apply -var 'access_key=${env.ACCESS_KEY}' -var 'secret_key=${env.SECRET_KEY}'  --var-file=./config/terraform.tfvars --auto-approve
+                          """
+                        }    
+                      
+                    }
                 }
             }
         }
         
         stage('Connect to EKS '){
-            when { expression {  params.action == 'create' } }
-        steps{
-
-            script{
-
-                sh """
-                aws configure set aws_access_key_id "$ACCESS_KEY"
-                aws configure set aws_secret_access_key "$SECRET_KEY"
-                aws configure set region ap-south-1
-                aws eks --region ap-south-1 update-kubeconfig --name EKS-cluster
-                """
+        
+            //when { expression {  params.action == 'create' } }
+            steps{
+                script{
+                    withCredentials([usernamePassword(credentialsId:"awsCredentials",passwordVariable:"SECRET_KEY",usernameVariable:"ACCESS_KEY")]){
+                        sh """
+                        aws configure set aws_access_key_id "${env.ACCESS_KEY}"
+                        aws configure set aws_secret_access_key "${env.SECRET_KEY}"
+                        aws configure set region ap-south-1
+                        aws eks --region ap-south-1 update-kubeconfig --name EKS-cluster
+                        """
+                    }
+                }
             }
-        }
         }
         
         stage('Deployment on test-EKS Cluster'){
